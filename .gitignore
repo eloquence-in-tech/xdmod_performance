@@ -1,5 +1,6 @@
 # config details
 .ipynb_checkpoints/
+.gitignore
 xsede_stats/
 prev/
 Poster.zip
