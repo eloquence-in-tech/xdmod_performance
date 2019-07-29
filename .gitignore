@@ -1,7 +1,5 @@
 # config details
 .ipynb_checkpoints/
 xsede_stats/
-prev/
-Poster.zip
-smartJob.py.ipynb
-smartHost.py.ipynb
+jobs/
+visualizations/code_visuals (pv2).ipynb
