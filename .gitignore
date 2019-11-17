@@ -1,5 +1,17 @@
-# config details
+# notebook savepoints
 .ipynb_checkpoints/
-xsede_stats/
-jobs/
-visualizations/code_visuals (pv2).ipynb
+
+# private data
+src/xsede_stats/
+data/
+src/modules/data/
+
+# for pre-processing only
+src/2016-generic_all-Copy1.ipynb
+src/2016-generic_all-Copy2.ipynb
+src/cpi_PCA.ipynb
+src/cpi_stats.ipynb
+src/current-generic.ipynb
+
+# needs significant overhauling
+visualizations/
