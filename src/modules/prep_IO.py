@@ -13,6 +13,23 @@ import pandas as pd
 import numpy as np
 import datetime as dt
 
+# System data locs
+source_dir = '/oasis/projects/nsf/sys200/stats/xsede_stats/'
+locs = { 'aofa': source_dir+'archive_of_archive',
+         'job_info': source_dir+'comet_accounting',
+         'arc': source_dir+'archive'
+         #'host_info': source_dir+'comet_hostfile_logs',
+         #'old_pickles': source_dir+'comet_pickles'
+       }
+arc_data = [ locs['arc']+'/'+host_dir+'/'+stamp 
+            for host_dir in listdir(locs['arc'])
+            for stamp in listdir(locs['arc']+'/'+host_dir)  ]
+
+aofa_data = [ locs['aofa']+'/'+host_dir+'/'+stamp 
+            for host_dir in listdir(locs['aofa'])
+            for stamp in listdir(locs['aofa']+'/'+host_dir)  ]
+acct_info_locs = [ locs['job_info']+'/'+stamp for stamp in listdir(locs['job_info']) ]
+
 ### Prep Cleaning
 
 def get_time( spec=None ):
@@ -30,7 +47,10 @@ def get_stamp( spec ):
             sf = "'%Y-%m-%dT%H:%M:%S'"
             return int(clock.mktime( clock.strptime( spec, sf ) ))
         except:
-            return 0
+            if type(spec) is int:
+                return spec
+            else:
+                return 0
 
 def check_static( alist ):
     return alist[1:] == alist[:-1]
@@ -50,7 +70,7 @@ def check_header( line ):
             return False
 
 #def group_from_txt(  ):
-#    
+#    PAUSED
 
 def check_job( chunk ):
     return chunk.find("-") == -1
@@ -86,6 +106,16 @@ def group_from_txt( txt_file ):
         group.append(item)
         
     return group
+
+def collect_ids( acct_file ):
+    chunks = open_txt( acct_file )    
+    test_ids = []
+
+    for chunk in chunks[1:]:
+        cut = chunk.split("|")
+        test_ids.append(cut[0])
+    
+    return test_ids
 
 def quick_save( obj, label=get_time() ):
     
@@ -222,6 +252,7 @@ def format_nodelist( nodelist ):
             node = 'comet' + '-' + base + '-' + item[ prev:i ]
             nodes.append(node)
             prev = i
+    
     return nodes
 
 def format_spec( line ):
@@ -260,7 +291,9 @@ def separate_nodes( search_tup ):
     t_n = search_tup[2]
     exp_list = []
     
-    if len( search_tup ) > 3:
+    if len( search_tup ) == 4:
+        rem = search_tup[3]
+    elif len( search_tup ) > 4:
         rem = search_tup[3:]
     
     for node in nl:
@@ -306,8 +339,8 @@ def from_tup( list_i ):
             nl = e
         if 'T' in e:
             try:
-                if get_stamp(e) is not '0':
-                    ts.append(t)
+                get_stamp(e)
+                ts.append(e)
             except:
                 next
     
@@ -329,11 +362,13 @@ def format_search_tup( line ):
         search_i = sort_input( line )
         
         nodelist = format_nodelist( search_i[0] )
-        start = get_stamp( search_i[1] )
-        end = get_stamp( search_i[2] )
+        start = get_stamp( search_i[1][0] )
+        end = get_stamp( search_i[1][1] )
         
-        if len(search_i) > 3:
-            return nodelist,start,end,search_i[3:]
+        if len(line) == 4:
+            return nodelist,start,end,line[3]
+        elif len(line) > 4:
+            return nodelist,start,end,line[3:]
         else:
             return nodelist,start,end
     else:
@@ -360,6 +395,48 @@ def timely_dict( host_data, host_name ):
     
     return timely_data
 
+def lookup_files( searchable_list ):
+    found = []
+    
+    for key in searchable_list:
+        host = key[0]
+        t_0 = key[1]
+        t_n = key[2]
+        d_0 = get_time(t_0)[:10]
+        d_n = get_time(t_n)[:10]
+    
+        for i in range(len(arc_data)):
+            loc = arc_data[i]
+        
+            if (host in loc) and t_0 != 0:
+                if str(t_0) in loc or str(t_0)[:-2] in loc:
+                    if loc not in found: found.append(loc)
+            
+            if (host in loc) and t_n != 0:
+                if str(t_n) in loc or str(t_n)[:-2] in loc:
+                    if loc not in found: found.append(loc)
+                    
+        for i in range(len(aofa_data)):
+            loc = aofa_data[i]
+        
+            if (host in loc) and t_0 != 0:
+                if str(t_0) in loc or str(t_0)[:-2] in loc:
+                    if loc not in found: found.append(loc)
+            
+            if (host in loc) and t_n != 0:
+                if str(t_n) in loc or str(t_n)[:-2] in loc:
+                    if loc not in found: found.append(loc)
+         
+        for i in range(len(acct_info_locs)):
+            loc = acct_info_locs[i]
+            
+            if (d_0 in loc) or (d_n in loc):
+                if loc not in found: found.append(loc)
+
+    lost = [ e for e in searchable_list if e not in found ]
+    
+    return found,lost
+                
 # PARAMETERS:
 # 's/e' single search from start/end (manual)
 #       ie) "Start, End: 2020-01-03T20:34:47, 2020-01-05T08:15:18"
@@ -385,24 +462,25 @@ def search( mode=['s/e', 's', 'l','f'], from_list=False ):
         line_tup = format_search_tup( line )
         return line_tup
 
-    elif mode == 'l' and type(from_list) is list:
-        try:
-            out_list = []
-            dropped = []
+    elif mode == 'l' and type( from_list ) is list:
+        out_list = []
+        dropped = []
             
-            for item in from_list:
-                try:
-                    item_tup = format_search_tup( item )
-                    if len(item_tup[0] == 1):
-                        out_list.append( item_tup )
-                    else:
-                        expanded_tups = separate_nodes(item_tup)
-                        out_list = out_list + expanded_tups
-                except:
-                    dropped.append(item)
-            return out_list,dropped
-        except:
-            "Unable to process variable passed to function. All items in list should be in"
+        for obj in from_list:
+            try:
+                obj_tup = format_search_tup( obj )
+                
+                if len( obj_tup[0] ) > 1:
+                    exp_tups = separate_nodes( obj_tup )
+                    out_list += exp_tups
+                    
+                elif len( obj_tup[0] ) == 1:
+                    out_list.append( obj_tup[0][0], obj_tup[1:] )
+            except:
+                dropped.append( obj )
+                    
+        files,notFound = lookup_files(out_list)
+        return { "Found": files, "Not Found": notFound, "Unable to Search": dropped }
     
     elif mode == 'f':
         search_list = group_from_text( input("Text file:") )
