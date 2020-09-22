@@ -136,6 +136,27 @@ def collect_ids( acct_file ):
     
     return test_ids
 
+def collect_failed( acct_file, lim=False ):
+    chunks = open_txt( acct_file )    
+    test_ids = []
+
+    if (lim) and (lim > 0):
+        for chunk in chunks[1:]:
+            if len(test_ids) >= lim:
+                return test_ids
+            else:
+                state = chunk.split("|")[9]
+                if state == "FAILED":
+                    test_ids.add(chunk)
+        
+    else:
+        for chunk in chunks[1:]:
+            state = chunk.split("|")[9]
+            if state == "FAILED":
+                test_ids.append( chunk )
+    
+    return test_ids
+
 def collect_headers( host_gzfile ):
     lines = unzip_txt( host_gzfile )
     return [ line for line in lines if 'comet' in line and ' ' in line ]
@@ -341,12 +362,20 @@ def timely_dict( host_data, host_name ):
 
 def info_dict( rules, info ):
     rules_list = rules.split("|")
+    info_list = info.split("|")
     
-    if len(rules_list) != len(info):
+    if len(rules_list) != len(info_list):
         return {}
     
     else:
-        return { rules_list[i]:info[i] for i in range(len(rules_list)) }
+        if '\n' in info_list[-1]:
+            saved = info_list[:-1]
+            extra = info_list[-1]
+            cut = extra[:-1]
+            
+            info_list = saved.append(cut)
+            
+        return { rules_list[i]:info_list[i] for i in range(len(rules_list)) }
 
 def host_to_info_dict( zip_txt ):
     contents = unzip_txt( zip_txt )
@@ -394,7 +423,7 @@ def host_to_info_dict( zip_txt ):
     
     return out_dict
 
-def job_to_info_dict( txt_file_list ):
+def job_to_info_dict( txt_file_list, target=False ):
     nodes_by_date = {}
     unsaved = []
 
@@ -402,6 +431,7 @@ def job_to_info_dict( txt_file_list ):
         try:
             # skip alt files
             #check_stamp = int( date[-14] )
+            #if (target) and (check_stamp == target):
             
             # read in file contents
             contents = open_txt( date )
@@ -432,6 +462,7 @@ def job_to_info_dict( txt_file_list ):
                     nodes_by_date[ label ][ node[:11] ] = info
         except:
             unsaved.append(date)
+            continue
             
     
     return nodes_by_date, unsaved
