@@ -3,15 +3,11 @@
 
 # private data
 src/xsede_stats/
-data/
-src/modules/data/
-
-# for pre-processing only
-src/2016-generic_all-Copy1.ipynb
-src/2016-generic_all-Copy2.ipynb
-src/cpi_PCA.ipynb
-src/cpi_stats.ipynb
-src/current-generic.ipynb
+2016-2017/
+analysis/inspect_raw.ipynb
+src/modules/inspect*
+src/modules/lustre*
+src/modules/to_*
 
 # needs significant overhauling
 visualizations/

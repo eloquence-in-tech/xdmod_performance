@@ -92,13 +92,11 @@ def check_job( chunk ):
     return chunk.find("-") == -1
 
 def open_txt( txt_file ):
-    
     with open( txt_file, "rt" ) as f:
         lines = f.readlines()
         f.close()
-    
     return lines
-
+    
 def unzip_txt( gzipped ):
     
     with gzip.open( gzipped, 'rt') as f:
@@ -373,7 +371,7 @@ def info_dict( rules, info ):
             extra = info_list[-1]
             cut = extra[:-1]
             
-            info_list = saved.append(cut)
+            info_list = saved.append( cut )
             
         return { rules_list[i]:info_list[i] for i in range(len(rules_list)) }
 
@@ -470,7 +468,8 @@ def job_to_info_dict( txt_file_list, target=False ):
 def lookup_files( searchable_list ):
     found = []
     
-    for key in searchable_list:
+    for m in range(len(searchable_list)):
+        key = searchable_list[ m ]
         host = key[0]
         t_0 = key[1]
         t_n = key[2]
@@ -514,12 +513,15 @@ def deep_search_acct( file_list, search_list ):
     collected = []
     
     for i in range(len(file_list)):
-        possible = open_txt( file_list[i] )
-        
-        for jobid in jobids:
-            for chunk in possible:
-                if jobid in chunk:
-                    collected.append(chunk)
+        try:
+            possible = open_txt( file_list[i] )
+            
+            for jobid in jobids:
+                for chunk in possible:
+                    if jobid in chunk:
+                        collected.append(chunk)
+        except:
+            continue
     
     return collected
 
@@ -591,28 +593,29 @@ def search( mode=['s/e', 's', 'l','f'], from_list=False, ret_form=False ):
         dropped = []
             
         for obj in from_list:
+            obj_tup = format_search_tup( obj )
+            
             try:
-                obj_tup = format_search_tup( obj )
-                
                 if len( obj_tup[0] ) > 1:
                     exp_tups = separate_nodes( obj_tup )
                     out_list += exp_tups
                     
                 elif len( obj_tup[0] ) == 1:
                     out_list.append( obj_tup[0][0], obj_tup[1:] )
+            
             except:
                 try:
                     if ('comet' in obj[0]) and (len(obj[0]) == 11):
-                        out_list.append( obj )
+                        out_list.append( obj_tup )
                 except:
                     continue
                     
-        files,notFound = lookup_files( out_list )
+        #files,notFound = lookup_files( out_list )
         
         #if ret_form:
             #
         #else:
-        return { "Acct Info": deep_search_acct( files, from_list ), "Host Info": deep_search_host( out_list ) }
+        return { "Acct Info": deep_search_acct( acct_info_locs, out_list ), "Host Info": deep_search_host( out_list ) }
     
     elif mode == 'f':
         search_list = group_from_text( input("Text file:") )
