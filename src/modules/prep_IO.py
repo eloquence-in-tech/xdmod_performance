@@ -155,6 +155,15 @@ def collect_failed( acct_file, lim=False ):
     
     return test_ids
 
+def failed_search( collected_dict_list ):
+    
+    for i in range( collected_dict_list ):
+        temp = collected_dict_list[i]
+        nodelist = temp['NodeList']
+        s = temp['Start']
+        e = temp['End']
+        jobid = temp['JobID']
+
 def collect_headers( host_gzfile ):
     lines = unzip_txt( host_gzfile )
     return [ line for line in lines if 'comet' in line and ' ' in line ]
@@ -376,51 +385,59 @@ def info_dict( rules, info ):
         return { rules_list[i]:info_list[i] for i in range(len(rules_list)) }
 
 def host_to_info_dict( zip_txt ):
-    contents = unzip_txt( zip_txt )
-    host_name = contents[1].partition(" ")[2][:11]
-    out_dict = { host_name: {} }
-    host_info = {}
-    info_dict = { "Data":{},
-                    "Job":"N/A",
-                    "Schemas":{},
-                    "Specs":[]
-                }
-    
-    for line in contents:
-            
-        if line[0] == "$":
-            info_dict["Specs"].append( format_spec( line ) )
-            
-        elif line[0] == "!":
-            info_dict["Schemas"].update( format_schema( line ) )
+    l = zip_txt.find("comet")
+    r = zip_txt.rfind("comet")
+    if l != r:
+        return zip_txt
+    else:
+        contents = unzip_txt( zip_txt )
+        host_name = contents[1].partition(" ")[2][:11]
+        sup_dict = { host_name: {} }
+        host_info = {}
+        info_dict = { "Data":{},
+                        "Job":"N/A",
+                        "Schemas":{},
+                        "Specs":[]
+                    }
         
-        else:
+        for line in contents:
+                
+            if line[0] == "$":
+                info_dict["Specs"].append( format_spec( line ) )
+                
+            elif line[0] == "!":
+                info_dict["Schemas"].update( format_schema( line ) )
             
-            if (len(line) > 0) and (len(line) < 3 or check_header( line )):
-                header_dict = format_header( line )
-                
-                if header_dict:
-                    t = header_dict["Timestamp"]
-                    host_info[ t ] = {}
-                    
-                    # Collecting as dictionary to support additional accounting data
-                    if check_job( header_dict["Jobid"] ):
-                        temp_jobid = header_dict["Jobid"]
-                        info_dict["Job"] = { "Jobid": temp_jobid } 
-                    
             else:
-                incoming = format_data( line )
-                info_dict["Data"].update( incoming )
-                
-                host_info[t].update( info_dict )
-                
-    out_dict[host_name].update( host_info )
+                if (len(line) > 0) and (len(line) < 3 or check_header( line )):
+                    header_dict = format_header( line )
+                    
+                    if header_dict:
+                        t = header_dict["Timestamp"]
+                        host_info[ t ] = {}
+                        
+                        # Collecting as dictionary to support additional accounting data
+                        if check_job( header_dict["Jobid"] ):
+                            temp_jobid = header_dict["Jobid"]
+                            info_dict["Job"] = { "Jobid": temp_jobid } 
+                        
+                else:
+                    incoming = format_data( line )
+                    info_dict["Data"].update( incoming )
+                    
+                    host_info[t].update( info_dict )
+        
+        # Preserve larger data structure
+        sup_dict[host_name].update( host_info )
+        
+        # Prepare/filter output
+        out_dict = { "Timely Data" : timely_dict( sup_dict, host_name ),
+                     "Schemas": info_dict['Schemas'],
+                     "Specs": info_dict['Specs'],
+                   }
+        
+        return out_dict
     
-    for host_name,host_data in out_dict.items():
-        out_dict[ host_name ][ "Timely Data" ] = timely_dict( out_dict, host_name )
-    
-    return out_dict
-
 def job_to_info_dict( txt_file_list, target=False ):
     nodes_by_date = {}
     unsaved = []
@@ -508,18 +525,53 @@ def lookup_files( searchable_list ):
     
     return found,lost
 
+def file_to_list( txt_file ):
+    form_out = []
+    
+    with open( txt_file, "rt" ) as f:
+        lines = f.read()
+    f.close()
+    
+    list_items = [ item.replace('\n','').split(" ") for item in lines.split("\n\n") ]
+    
+    for i in range(len( list_items )):
+        check = list_items[i]
+
+        if len(check) >= 13:
+            nodelist = format_nodelist( check[9].partition("=")[2] )
+                
+            s = check[7].partition("=")[2]
+            e = check[8].partition("=")[2]
+            jobid = check[0].partition("=")[2]
+            
+            this_search_tup = ( nodelist, s, e, jobid )
+            
+            if len(nodelist) == 1:
+                form_out.append( ( nodelist[0], s, e, jobid ) )
+                
+            else:
+                exp_tups = separate_nodes( this_search_tup )
+                form_out += exp_tups
+            
+        
+    return form_out
+
 def deep_search_acct( file_list, search_list ):
     jobids = [ item[3] for item in search_list ]
-    collected = []
+    collected = {}
+    
+    #optional: predict filename using basename+namingrule
     
     for i in range(len(file_list)):
         try:
             possible = open_txt( file_list[i] )
             
-            for jobid in jobids:
+            for j in range(len( jobids )):
+                jobid = jobids[j]
+                
                 for chunk in possible:
                     if jobid in chunk:
-                        collected.append(chunk)
+                        collected[ search_list[j] ] = { "Data": chunk, "Source": file_list[i] }
         except:
             continue
     
@@ -560,7 +612,14 @@ def deep_search_host( search_list ):
                             
                 except:   
                     continue
-                    
+    
+    # prepare output
+    temp = out
+    out = {}
+    
+    for label_tup,src_file in temp.items():
+        out[ label_tup ] = { "Data": host_to_info_dict( src_file ), "Source": src_file }
+    
     return out
 
 # PARAMETERS:
@@ -575,12 +634,12 @@ def deep_search_host( search_list ):
 #           search( mode='l', myJobList )
 # 'f' repeated search from nodelist%start%end (from file)
 #       ie) "Text file: your_search_file.txt"  (Note: Mismatched file contents ignored)
-def search( mode=['s/e', 's', 'l','f'], from_list=False, ret_form=False ):
+def search( mode=['s/e', 's', 'l','f'], from_list=False ):
     
     if mode == 's/e':
         t_0,t_n = input("Start, End:").replace(",", "").split(" ")
         start = get_stamp( t_0 )
-        end=get_stamp( t_n )
+        end = get_stamp( t_n )
         return start,end
     
     elif mode == 's':
@@ -606,16 +665,26 @@ def search( mode=['s/e', 's', 'l','f'], from_list=False, ret_form=False ):
             except:
                 try:
                     if ('comet' in obj[0]) and (len(obj[0]) == 11):
-                        out_list.append( obj_tup )
+                        out_list.append( ( obj_tup[0][0], obj_tup[1], obj_tup[2], obj_tup[3] ) )
                 except:
                     continue
                     
         #files,notFound = lookup_files( out_list )
+        acct_info = deep_search_acct( acct_info_locs, out_list )
+        host_info = deep_search_host( out_list )
         
-        #if ret_form:
-            #
-        #else:
-        return { "Acct Info": deep_search_acct( acct_info_locs, out_list ), "Host Info": deep_search_host( out_list ) }
+        # prep output               
+        out_dict = {}
+        
+        for i in range(len( out_list )):
+            label = out_list[i]
+            data_dict = { "Acct Info": acct_info[label]["Data"],
+                          "Host Info": host_info[label]["Data"],
+                          "Source Files": ( acct_info[label]["Source"], host_info[label]["Source"] )
+                        }
+            out_dict[ label ] = data_dict
+                    
+        return out_dict
     
     elif mode == 'f':
         search_list = group_from_text( input("Text file:") )
