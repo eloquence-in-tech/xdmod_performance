@@ -331,6 +331,30 @@ def format_search_tup( line ):
     else:
         return 1
 
+def acct_file_to_searchset( txt_file ):
+    chunks = open_txt( txt_file )[1:]
+    out_list = []
+    
+    for i in range(len( chunks )):
+        curr = chunks[i].split("|")
+        jobid = curr[0]
+        s = curr[3]
+        e = curr[4]
+        
+        # actual reported host node(s)
+        if "comet" in curr[-1]:
+            nodelist = format_nodelist( curr[-1] )
+            obj_tup = ( nodelist, s, e, jobid )
+            
+            if len( obj_tup[0] ) > 1:
+                exp_tups = separate_nodes( obj_tup )
+                out_list += exp_tups
+                    
+            elif len( obj_tup[0] ) == 1:
+                out_list.append( ( obj_tup[0][0], obj_tup[1], obj_tup[2], obj_tup[3] ) )
+    
+    return out_list
+    
 ####Data analysis
 
 def timely_dict( host_data, host_name ):
