@@ -331,10 +331,22 @@ def format_search_tup( line ):
     else:
         return 1
 
-def acct_file_to_searchset( txt_file ):
-    chunks = open_txt( txt_file )[1:]
+def acct_file_to_searchset( acct_chunks=False, partial_txt=False, full_txt=False ):
     out_list = []
     
+    if acct_chunks:
+        chunks = acct_chunks
+    
+    elif partial_txt:
+        raw_chunks = open_txt( partial_txt )
+        chunks = [ item for item in raw_chunks ]
+    
+    elif full_txt:
+        chunks = open_txt( full_txt )[1:]
+    
+    else:
+        return 1
+        
     for i in range(len( chunks )):
         curr = chunks[i].split("|")
         jobid = curr[0]
@@ -343,7 +355,14 @@ def acct_file_to_searchset( txt_file ):
         
         # actual reported host node(s)
         if "comet" in curr[-1]:
-            nodelist = format_nodelist( curr[-1] )
+            
+            if '\n' in curr[-1] or '\\n' in curr[-1]:
+                check = curr[-1]
+                checked = check.replace('\n','').replace('\\n','')
+            else:
+                checked = curr[-1]
+                
+            nodelist = format_nodelist( checked )
             obj_tup = ( nodelist, s, e, jobid )
             
             if len( obj_tup[0] ) > 1:
