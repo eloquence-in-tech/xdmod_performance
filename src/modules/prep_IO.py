@@ -166,7 +166,8 @@ def failed_search( collected_dict_list ):
 
 def collect_headers( host_gzfile ):
     lines = unzip_txt( host_gzfile )
-    return [ line for line in lines if 'comet' in line and ' ' in line ]
+    ret_list = [ line for line in lines if 'comet' in line and ' ' in line ]
+    return ret_list[1:]
 
 def quick_save( obj, label=get_time() ):
     
