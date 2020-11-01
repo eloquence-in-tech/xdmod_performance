@@ -29,7 +29,19 @@ curr_data = [ locs['arc']+'/'+host_dir+'/'+stamp
 aofa_data = [ locs['aofa']+'/'+host_dir+'/'+stamp 
             for host_dir in listdir(locs['aofa'])
             for stamp in listdir(locs['aofa']+'/'+host_dir)  ]
+
 arc_data = curr_data + aofa_data
+sorted_arc_data = {}
+
+for i in range(len( arc_data )):
+    host_x = arc_data[i].find("comet")
+    host_name = arc_data[i][ host_x : host_x + 11 ]
+    
+    if host_name in sorted_arc_data:
+        sorted_arc_data[ host_name ].append( arc_data[i] )
+    
+    else:
+        sorted_arc_data[ host_name ] = [ arc_data[i] ]
 
 ### Prep Cleaning
 
@@ -75,21 +87,25 @@ def check_static( alist ):
     return alist[1:] == alist[:-1]
 
 def check_header( line ):
-    if line.find(" ") < 0:
-        try:
-            return line[0] == '%'
-        except:
-            return False
-        
-    else:
-        chunks = line.split(" ")
-        try:
-            return (chunks[0][0] == '%') or ( chunks[2].find("comet") >= 0 )
-        except:
-            return False
+    try: return (line.split(" ")[0] not in ['$','!','%begin','%end']) and ('comet' in line.split(" ")[2])
+    except: return False
 
 def check_job( chunk ):
     return chunk.find("-") == -1
+
+def check_host_file( headers_list, search_tup ):
+    ids = [ item.split(" ")[1] for item in headers_list ]
+    target_id = search_tup[3]
+    
+    if (target_id in ids) and (ids[1:] == ids[:-1]):
+        return 2
+    elif (target_id in ids):
+        return 1
+    else:
+        return 0
+
+def get_year( gz_filename ):
+    return get_time( gz_filename.split("/")[-1][:-3])[:4]    
 
 def open_txt( txt_file ):
     with open( txt_file, "rt" ) as f:
@@ -175,29 +191,10 @@ def quick_save( obj, label=get_time() ):
         out_file = open( label, 'wb')
         pickle.dump( obj, out_file)
         
-        # double check save
-        check_cpicore_set = pickle.load(open(cpiset_out, 'rb'))
-        check_cpicore_set = None
-        
     except:
         "There was a problem pickling the object - Save manually."
 
 ####Formatting
-
-def format_header( line ):
-    chunks = line.split(" ")
-    
-    try:
-        if chunks[0][0] == '%':
-            return {}
-        else:
-            return { "Timestamp": get_time( chunks[0] ), 
-                     "Jobid": chunks[1],
-                     "Host": chunks[2][:11] }
-        
-    except:
-        return {}
-
 def format_nodelist( nodelist ):
     purged = nodelist.replace('[','').replace(']','').replace(',','-').replace('-','').split("comet")[1:]
     nodes = []
@@ -215,15 +212,6 @@ def format_nodelist( nodelist ):
 
 def format_spec( line ):
     return line[1:-1]
-
-def format_data( line ):
-    chunks = line.split(" ")
-    
-    stat = chunks[0]
-    dev = chunks[1]
-    data = chunks[2:-1]
-    
-    return { (stat,dev): data }
 
 def format_schema( line ):
     chunks = line.partition(" ")
@@ -243,6 +231,24 @@ def format_schema( line ):
     
     return { stat:fin_sch }
 
+def format_header( line ):
+    chunks = line.split(" ")
+    
+    try:
+        return { "Timestamp": chunks[0], 
+                     "Jobid": chunks[1],
+                     "Host": chunks[2][:11] }
+    except:
+        return line
+    
+def format_data( line ):
+    chunks = line.split(" ")
+    
+    stat = chunks[0]
+    dev = chunks[1]
+    data = chunks[2:-1]
+    
+    return { (stat,dev): data }
 def separate_nodes( search_tup ):
     nl = search_tup[0]
     t_0 = search_tup[1]
@@ -377,35 +383,21 @@ def acct_file_to_searchset( acct_chunks=False, partial_txt=False, full_txt=False
     
 ####Data analysis
 
-def timely_dict( host_data, host_name ):
-    stamps = list(host_data[ host_name ].keys())
-    schemas = host_data[ host_name ][ stamps[0] ]["Schemas"]
+def timely_dict( info_dict ):
     timely_data = []
     
-    for stamp in stamps:
-        for key,data in host_data[ host_name ][ stamp ]["Data"].items():
-            
+    for header,stat_dict in info_dict["Data"].items():
+        chunks = header.split(" ")
+        t = chunks[0]
+        jobid = chunks[1]
+        
+        for key,data in stat_dict.items():
             stat = key[0]
             dev = key[1]
             
             for i in range(len(data)):
-                metric = schemas[stat][i]
-            
-            info = (stat, metric, dev, int(data[i]), stamp)
-            timely_data.append( info )
-    
-    for i in range(len(timely_data)):
-        datum_list = [ timely_data[i] ]
-        t_i = timely_data[i][4]
-        job_info = host_data[ host_name ][ t_i ]["Job"]
-        
-        try:
-            if "Jobid" in job_info.keys():
-                jobid = (job_info["Jobid"])
-                new_tup = tuple( datum_list.append( jobid ) )
-                timely_data[i] = new_tup
-        except:
-            continue
+                metric = info_dict['Schemas'][stat][i]
+                timely_data.append( (stat, dev, metric, data[i], t, jobid) )
     
     return timely_data
 
@@ -431,56 +423,63 @@ def info_dict( rules, info ):
 def host_to_info_dict( zip_txt ):
     l = zip_txt.find("comet")
     r = zip_txt.rfind("comet")
+    
     if l != r:
         return zip_txt
-    else:
-        contents = unzip_txt( zip_txt )
-        host_name = contents[1].partition(" ")[2][:11]
-        sup_dict = { host_name: {} }
-        host_info = {}
-        info_dict = { "Data":{},
-                        "Job":"N/A",
-                        "Schemas":{},
-                        "Specs":[]
-                    }
+    
+    contents = prep_IO.unzip_txt( zip_txt )
+    info_dict = { 
+        "Schemas":{},
+        "Specs":[],
+        "Data":{},
+        "Jobid(s)":[]
+                }
+    
+    # Collect setting content
+    for i in range(len( contents )):
+        line = contents[ i ]
         
-        for line in contents:
-                
-            if line[0] == "$":
-                info_dict["Specs"].append( format_spec( line ) )
-                
-            elif line[0] == "!":
-                info_dict["Schemas"].update( format_schema( line ) )
-            
-            else:
-                if (len(line) > 0) and (len(line) < 3 or check_header( line )):
-                    header_dict = format_header( line )
+        # Spec line
+        if line[0] == "$":
+            info_dict["Specs"].append( prep_IO.format_spec( line ) )
+        
+        # Schema line    
+        if line[0] == "!":
+            info_dict["Schemas"].update( prep_IO.format_schema( line ) )
+    
+    # Collect variable content
+    curr_header = ''
+    
+    for j in range( len(contents) ):
+        line = contents[ j ]
+        
+        if "%" in line.split(" ")[0]:
+            next
+        
+        # Header line
+        elif check_header( line ):
+            header_dict = format_header( line )
+            curr_header = line[:-1]
+                                        
+            if "Timestamp" in header_dict:
+                info_dict["Data"][ curr_header ] = {}
                     
-                    if header_dict:
-                        t = header_dict["Timestamp"]
-                        host_info[ t ] = {}
-                        
-                        # Collecting as dictionary to support additional accounting data
-                        if check_job( header_dict["Jobid"] ):
-                            temp_jobid = header_dict["Jobid"]
-                            info_dict["Job"] = { "Jobid": temp_jobid } 
-                        
-                else:
-                    incoming = format_data( line )
-                    info_dict["Data"].update( incoming )
+                if ("Jobid" in header_dict) and (header_dict["Jobid"] not in info_dict["Jobid(s)"]):
+                    info_dict["Jobid(s)"].append( header_dict["Jobid"] )
+    
+        # Data line
+        else:
+            try:
+                curr_data = prep_IO.format_data( line )
+                info_dict["Data"][curr_header].update( curr_data )
                     
-                    host_info[t].update( info_dict )
-        
-        # Preserve larger data structure
-        sup_dict[host_name].update( host_info )
-        
-        # Prepare/filter output
-        out_dict = { "Timely Data" : timely_dict( sup_dict, host_name ),
-                     "Schemas": info_dict['Schemas'],
-                     "Specs": info_dict['Specs'],
-                   }
-        
-        return out_dict
+            except:
+                next
+                
+    data_dict = timely_dict( info_dict )
+    info_dict["Data"] = data_dict
+    
+    return info_dict
     
 def job_to_info_dict( txt_file_list, target=False ):
     nodes_by_date = {}
@@ -621,48 +620,60 @@ def deep_search_acct( file_list, search_list ):
     
     return collected
 
-def deep_search_host( search_list ):
-    out = { item:0 for item in search_list }
+def deep_search_host( search_list, jobids=False ):
+    out = { item:{"Source":[] } for item in search_list }
     
-    for i in range(len( arc_data )):
-        for j in range(len( search_list )):
-            filename = arc_data[i]
-            target = search_list[j]
+    for i in range(len( search_list )):
+        target = search_list[ i ]#.split(" ")
+        target_host = target[0]
+        target_s = target[1]
+        target_e = target[2]
+        
+        if target_host not in sorted_arc_data:
+            out[ target ]["Source"].append( "HostNotFound" )
+        
+        else:
+            for j in range(len( sorted_arc_data[ target_host ] )):
+                filename = sorted_arc_data[ target_host ][ j ]
+                file_year = get_year( filename )
             
-            if target[0] in filename:
-                try:
-                    if comp_window( target[1], target[2], filename[-13:-3] ):
-                        out[ target ] = filename
-                    else:
-                        headers = collect_headers( filename )
-                        out[ target ] = { "Source":[], "Headers":[] }
+                # screen for files already added to source collection
+                if ( filename not in out[ target ]["Source"] ) and ( (file_year == target_s[:4] ) or ( file_year == target_e[:4] ) ):
+                    headers = collect_headers( filename ) 
+                    
+                    # jobids included in search arguments
+                    if jobids:
+                
+                        # if jobid is only id in file
+                        if check_host_file( headers, target ) == 2 :
+                            out[ target ]["Source"].append( filename )
+                            
+                            if ( "Single JobID" not in out[target] ):
+                                out[ target ]["Single JobID"] = True
+                                                                                        
+                            ####just pull all data from file
+                                
+                        # if jobid is in file but with others
+                        elif check_host_file( headers, target ) == 1:            
+                            out[ target ]["Source"].append( filename )
+                            out[ target ]["Single JobID"] = False
+                                          
+                            #### pull data but key:id, value:lines for id
+                            
+                        # jobid not found
+                        else:
+                            next
+            
+            # jobids not included in search arguments
+            # search by timestamps
+            #else:
+                #for k in range(len( headers )):
+                #    sample = headers[ k ].split(" ")
+                    
+                    # timestamp in header is between s/e timestamps in target
+                #    if prep_IO.comp_window( target[1], target[2], sample[0] ) == 0:
                         
-                        for k in range(len( headers )):
-                            sample = headers[k].split(" ")
-                            
-                            # if jobids match
-                            if sample[1] == target[3]:
-                                
-                                if filename not in out[ target ][ "Source" ]:
-                                    out[ target ][ "Source" ].append( filename )
-                                out[ target ]["Headers"].append(sample)
-                            
-                            # if timestamps match
-                            elif comp_window( target[1], target[2], sample[0] ) == 0:
-                                
-                                if filename not in out[ target ][ "Source" ]:
-                                    out[ target ][ "Source" ].append( filename )
-                                out[ target ]["Headers"].append(sample)
-                            
-                except:   
-                    continue
-    
-    # prepare output
-    temp = out
-    out = {}
-    
-    for label_tup,src_file in temp.items():
-        out[ label_tup ] = { "Data": host_to_info_dict( src_file ), "Source": src_file }
+                        ####just pull all data from file
     
     return out
 

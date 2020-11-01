@@ -1,0 +1,185 @@
+\documentclass[10pt]{article}
+
+\usepackage{amscd}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{multicol}
+\usepackage{multirow}
+\usepackage{pstricks}
+\usepackage{wrapfig}
+
+\graphicspath{ {./images/} }
+
+\newlength{\backgroundwidth}
+\newlength{\backgroundheight}
+
+\pagestyle{empty}
+
+\setlength{\paperwidth}{17.333in}
+\setlength{\paperheight}{12.000in}
+\setlength{\backgroundwidth}{17.333in}
+\setlength{\backgroundheight}{12.000in}
+\setlength{\textwidth}{17.000in}
+\setlength{\textheight}{11.667in}
+\setlength{\topmargin}{-0.850in}
+\setlength{\headheight}{0.0in}
+\setlength{\headsep}{0.0in}
+\setlength{\topskip}{0.0in}
+\setlength{\footskip}{0.0in}
+\setlength{\oddsidemargin}{-0.80in}
+
+\special{papersize=17.333in,12.000in}
+
+\newsavebox{\dummybox}
+\newenvironment{boxit}{
+   \begin{lrbox}{\dummybox}
+      \begin{minipage}{0.925\columnwidth}
+      }{
+      \end{minipage}
+   \end{lrbox}
+   \raisebox{-\depth}
+      {\psshadowbox[framesep=1em,framearc=0.1,shadow=true]
+         {\usebox{\dummybox}}}
+   \vspace{0.005\textheight}
+}
+
+\newrgbcolor{black}{0.0 0.0 0.0}
+\newrgbcolor{goldenhanced}{0.823529 0.776471 0.580392}
+\newrgbcolor{goldmetallic}{0.611765 0.537255 0.427451}
+\newrgbcolor{goldnonmetallic}{0.737255 0.560784 0.129412}
+\newrgbcolor{red}{0.658824 0.098039 0.2}
+
+\newcommand{\bra}[1]{\langle #1|}
+\newcommand{\ket}[1]{|#1\rangle}
+\newcommand{\braket}[2]{\langle #1|#2\rangle}
+
+% --- BEGIN DOCUMENT ---------------------------------------------------
+
+\begin{document}
+   
+   \begin{center}
+  
+% --- BACKGROUND -------------------------------------------------------
+
+      \psframe[linestyle=none,fillstyle=solid,fillcolor=goldenhanced](-\backgroundwidth,-\backgroundheight)(\backgroundwidth,\backgroundheight)
+
+% --- TITLE BOX --------------------------------------------------------
+
+      \vspace{0.0in}
+      \psframebox[fillstyle=solid,linewidth=1pt,framearc=0.5]{
+         \makebox[0.98\textwidth]{
+         \parbox[c]{4.5cm}{\includegraphics[width=3.5cm]{images/ucsd logo.png}}
+            \parbox[c]{0.7\linewidth}{
+            \begin{center}
+               \textbf{\LARGE Leveraging Data Streams to Predict Performance} \\ 
+	       \vspace{0.75em}
+               \textsc{\Large Utilizing XSEDE Metrics on Demand data to audit performance of XSEDE Resources in High Performance Computing} \\ 
+	       \vspace{0.75em}
+               \text{\large Marian "Bailey" Passmore   
+                            Mathematics - Computer Science    
+                            University of California, San Diego   
+                            mpassmor@ucsd.edu \\
+				   [0.3em]
+                            Adrian Martinez
+                            Applied Mathematics
+                            University of California, San Diego
+                            afmartin@ucsd.edu \\
+				   [0.3em]
+                            Mahidhar Tatineni ~
+                            San Diego Supercomputer Center 
+                            mahidhar@sdsc.edu \\
+				   [1.2em]
+				   
+				   \text{Keywords:  High Performance Computing, Machine Learning, Data Science, Comet}
+            }
+            
+         \end{center}
+         }
+         \parbox[c]{7.5cm}{\includegraphics[width=7.5cm, height=4.5cm]{images/sdsc_logo.png}}
+      }
+   }
+\vspace{-2.5em}
+% --- BEGIN COLUMNS ----------------------------------------------------
+      \begin{multicols}{3} % Set the number of columns. 
+
+      % --- ABSTRACT ---------------------------------------------------
+
+         \begin{boxit}
+            \section*{\red Abstract}
+            \vspace{-0.75em}
+               The Extreme Science and Engineering Discovery Environment (XSEDE) was responsible for computing 24.8 million jobs in 2018, using 7.8 billion CPU hours. User allocations on XSEDE High Performance Computing resources are made based on code performance and based on projections for the planned simulations in a project. Metrics on XSEDE jobs are collected via an open-source tool called, "XSEDE Metrics on Demand (XDMoD)" with the intention of supporting scientists in auditing their use of these resources. Though the job specific data collection leveraging the SUPReMM framework is extensive, users typically do not delve into the details of their jobs - which can number in the thousands. The goal of this project is to propose and demonstrate the potential use of this data for the purpose of predicting job performance, and analyze the feasibility of predicting overall performance of job with a fraction of the temporal data early in a run. This could potentially be used to flag slow running jobs and make resource usage more efficient.
+
+      % --- INTRODUCTION -----------------------------------------------
+
+            \section*{\red Background}
+            \vspace{-0.75em}
+            \subsection*{\red Tools}
+               \\\underline{XSEDE Resources}: A collection of computing systems that allow users access to dedicated hardware to meet their unique programming demands. XSEDE Resources include, but are not limited to, high performance computing, data storage, and GPU- acceleration.
+               \\\underline{XDMoD TACC Stats}: An exhaustive compilation of CPU, memory, IO, and system info collected on 10 minute intervals throughout the duration of a job. Texas Advanced Computing Center (TACC). [1]
+               \\\underline{Comet}: An XSEDE resource located at the San Diego Supercomputer Center. Job data used and referenced in this project was compiled exclusively from jobs run on Comet in approximately the past three (3) years.
+               
+               \subsection*{\red Purpose}
+               \\XDMoD is an open-source comprehensive tool intended to facilitate the analysis of high performance computing projects. Its original goal was to support researchers and members of the HPC industry in auditing and improving the use of XSEDE resources, as the  data is readily available and able to be translated to a usable format. Users typically utilize XDMoD TACC Stats to view job statistics for a quick visual reference of performance. However, there is a large amount of low level information available for analysis which can be potentially used for modeling performance.
+
+            \subsection*{\red Relevance}
+             \\ Scientific simulations command a massive use of supercomputing resources, which are oversubscribed across the board and require significant funding to maintain. There is often a well-thought process to receive an allocation on these machines, but the demand consistently exceeds the available resources. In support of such requests and for efficient use of resources, there is a need for monitoring resource usage inefficiencies that can impact the availability of those resources on a larger scale. This process could also be developed to support effective maintenance of resources by identifying and flagging decreased performance on specific nodes, which may be in need of repair or other servicing. \\
+
+         \end{boxit}
+
+         \begin{boxit}
+	        \section*{\red Data Cleaning}
+	        \vspace{-0.75em}
+	        \subsection*{\red Extracting the Data}
+	        \vspace{-0.5em}
+                \\The data available for this project had been pickled using an old version of Python and the pickle module. In order to read in the data, the authors used a Singularity container on Comet in which these previous dependencies were installed and continued to run. While this was an effective strategy for providing access to the data, the previous editions of Python and pandas did not also support the Principle Component Analysis and machine learning framework to be implemented in the second portion of the project. Since the Job object that had been pickled could not be manipulated outside of this environment, an intricate program was developed to extract the original pickle files, clean the data, format as a DataFrame, and save as a neutral file type. Once the data was formatted and saved, the second portion of the project began in a new and up-to-date anaconda environment.\\
+	        \parbox[c]{6.5cm}{\includegraphics[width=10.5cm, height 3.5cm]{images/intel_hsw_trend.png}}\\
+	        \label{Figure 1}\\
+	        \parbox[c]{8.5cm}{\includegraphics[width=11.5cm, height 7.5cm]{images/inte_hsw_schema.png}}\\
+	        \label{Figure 2}
+	        \\Figures 1 and 2 refer to the Intel Haswell usage for a specific job. Figure 1 demonstrates the summation across schema values and devices, and Figure 2 depicts the full schema with literal values.
+	        
+	        \subsection*{\red Defining a Valid Job}
+	        \vspace{-0.5em}
+                \\For the purpose of developing this model, a job is included in this dataset if it ran for at least 60 minutes, resulting in at least 6 cycles of statistics collected. Though there are 33 available types of statistics to gather on a job, a majority of jobs measured around 25 types. In addition to the varying number of types of statistics and cycles counted, a job may also vary in the number of host nodes. As this project is centered on the subject of node performance, a unique host+jobid pair is treated as one job.\\
+	 \end{boxit}
+	 
+
+	 \begin{boxit}
+	 \subsection*{\red Job Data}
+	 \vspace{-0.75em}
+                There are 33 available types of statistics according to the XDMoD TACC Stats documentation. For each type of statistic collected, there is a particular and unique internal schema. In addition, each type of statistic has a unique set of devices associated with it. In full, one job+host pair can have up to 33 features tracked across up to 24 devices for each feature, which are measured and updated every 10 minutes for the duration of the job (the longest job in this data set had 516 cycles of data collected). Whether a value in a statistic's schema is meaningful to the overall trend is a factor we are continuing to determine as the project progresses. However, the Intel Haswell group of statistics includes a Boolean variable regarding the instructions, so a special DataFrame was created to collect these specific values for further analysis.
+                \\
+                
+                \parbox[c]{8.5cm}{\includegraphics[width=8.5cm, height 6.5cm]{images/by_sum.png}}\\
+	        \label{Figure 3}
+	        \\Figure 3 depicts a job's statistics through the duration of the job. Note: The values shown are a summation along each device for that time.
+            \section*{\red Merging XDMoD info and Predictive Analytics}
+            \vspace{-0.75em}
+            \subsection*{\red Process}
+            \vspace{-0.5em}
+            The goal is to construct and test a small-scale prototype of an effective use of these metrics to narrow down the large set of parameters and build a more accurate predictive model. Given the complexity and levels (5) of the data collected by xsede_stats program, the initial analysis and preparation of data took longer than anticipated. Interpreting singular values in the data required an in-depth understanding of all key,value pairs at each level. The larger scale parameterization work is now underway and will be used in the second analysis phase of the project.
+            
+            \subsection*{\red Conclusion}
+            \vspace{-0.5em}
+            The data preparation component of the project, involving reading of raw job data files and format conversion, has been completed. The first analysis involved aggregating some of the parameters to reduce the parameter count. The principle component analysis for this reduced data showed that the paramerization level needed for accurate analysis was lacking. A more extensive parameterization effort for compiling the statistics for each job+host combination is underway. In the ongoing research, we will do principle component analysis on the additional level of data as well as re-run the analysis after implementing the results. The PCA will be used to reduce the parameter set needed to evaluate the efficiency of the jobs. Since the Haswell counters do not have enough information to accurately calculate the floating point operations per second, the average cycles per instruction will be used as the primary metric to predict based on the detailed job information. 
+            
+            \subsection*{\red Acknowledgements}
+	    \vspace{-0.5em}
+               \small
+               Thank you to Nicole Wolter, Computational and Data Science Research Instructor at the San Diego Supercomputer Center for advising the writers. Thank you to the San Diego Supercomputer Center for allowing the authors to facilitate the research. Supported by NSF grant: ACI #1341698 Gateways to Discovery: Cyberinfrastructure for the Long Tail of Science. 
+               \normalsize
+	 \end{boxit}
+
+      % --- ACKNOWLEDGMENTS --------------------------------------------
+      
+      \end{multicols}
+
+   % --- END COLUMNS ---------------------------------------------------
+
+   \end{center}
+
+\end{document}
+% === END DOCUMENT =================================================================================================================
