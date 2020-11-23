@@ -6,12 +6,14 @@ from IPython.display import clear_output
 
 import pickle
 import gzip
-import re
 
 # Data manipulation dependencies
-import pandas as pd
+#import pandas as pd
 import numpy as np
 import datetime as dt
+from collections import OrderedDict
+import scipy
+import statistics
 
 # System data locs
 source_dir = '/oasis/projects/nsf/sys200/stats/xsede_stats/'
@@ -31,20 +33,132 @@ aofa_data = [ locs['aofa']+'/'+host_dir+'/'+stamp
             for stamp in listdir(locs['aofa']+'/'+host_dir)  ]
 
 arc_data = curr_data + aofa_data
-sorted_arc_data = {}
+
+## Handle minor formatting for search methods
+GPU_host_key = 'comet-3'
+GPU_exceptions = [ 'comet-30-01', 'comet-30-02', 'comet-31-01', 'comet-31-02' ]
+sorted_arc_data = OrderedDict()
 
 for i in range(len( arc_data )):
     host_x = arc_data[i].find("comet")
     host_name = arc_data[i][ host_x : host_x + 11 ]
     
-    if host_name in sorted_arc_data:
-        sorted_arc_data[ host_name ].append( arc_data[i] )
-    
+    if ( GPU_host_key not in host_name ) or ( host_name in GPU_exceptions ):
+        if host_name in sorted_arc_data:
+            sorted_arc_data[ host_name ].append( arc_data[i] )
+        
+        else:
+            sorted_arc_data[ host_name ] = [ arc_data[i] ]
+
+### Prep Analysis
+def check_static( alist ):
+    return alist[1:] == alist[:-1]
+
+def nonzero_start( host_data_list ):
+    if host_data_list[0] != 0:
+        return host_data_list[1:] > host_data_list[:-1]
     else:
-        sorted_arc_data[ host_name ] = [ arc_data[i] ]
+        return False
+
+def get_stats( data ):   
+    try:
+        stats_blob = {
+            'Count' : len(data),
+            'Min' : min(data),
+            'Max' : max(data),
+            'Mode' : statistics.mode(data),
+            'Quartiles' : np.percentile(data, [25, 50, 75] ),
+            'Mean' : np.mean(data),
+            'Std. Dev' : np.std(data),
+            'Skew' : scipy.stats.skew(data),
+            'Nonzero Start': nonzero_start(data)
+        }
+        return stats_blob
+    
+    except:
+        stats_blob = {
+            'Count' : len(data),
+            'Min' : min(data),
+            'Max' : max(data),
+            'Quartiles' : np.percentile(data, [25, 50, 75] ),
+            'Mean' : np.mean(data),
+            'Std. Dev' : np.std(data),
+            'Skew' : scipy.stats.skew(data),
+            'Nonzero Start': nonzero_start(data)
+        }
+        return stats_blob
+    
+def get_cov_matrix( x_list, y_list ):
+    x_arr,y_arr = np.array( x_list ), np.array( y_list )
+    
+    return np.cov( x_arr, y_arr )
+
+def get_corr_matrix( x_list, y_list ):
+    x_arr,y_arr = np.array( x_list ), np.array( y_list )
+    
+    return np.corrcoef( x_arr, y_arr ) #r = corrcoef_matrix[0, 1]
+
+def corr_w_pval( x_list, y_list ):
+    x_arr,y_arr = np.array( x_list ), np.array( y_list )
+
+    return scipy.stats.pearsonr( x_arr, y_arr )
+
+def linear_reg( x_list, y_list ):
+    x_arr,y_arr = np.array( x_list ), np.array( y_list )
+
+    #LinregressResult has .slope, .intercept, .rvalue, .pvalue, .stderr
+    return scipy.stats.linregress( x_arr, y_arr )
+
+def norm_df( df ):
+    return (df-df.mean())/df.std()
+
+def minmax_df( df ):
+    return (df-df.min())/(df.max()-df.min())
+
+def get_sample_hosts( search_set, n ):
+    out = []
+    
+    for i in range(n):
+        idx = np.random.randint( len(search_set) )
+        val = search_set[ idx ]
+        
+        if '_' not in val[3]:
+            out.append( val )
+        else:
+            idx = np.random.randint( len(search_set) )
+            val = search_set[ idx ]
+            out.append( val )
+        
+    return out
+
+def get_host_descriptives( labeled_data_dict, data_keys_list ):
+    descriptives = { "Static":[] }
+    
+    for i in range(len( data_keys_list )):
+        key = data_keys_list[i]
+        timedata_list = [ float(item[1]) for item in labeled_data_dict[ key ] ]
+        
+        if ( sum(timedata_list) == 0 ) or ( check_static( timedata_list ) ):
+            descriptives["Static"].append( key )
+            
+        else:
+            
+            if nonzero_start( timedata_list ):
+                temp = timedata_list
+                base = temp[0]
+                timedata_list = [ x - base for x in temp ]
+        
+                stats = get_stats( timedata_list )
+                stats["Starting Value"] = base
+                descriptives[ key ] = stats
+                
+            else:
+                stats = get_stats( timedata_list )
+                descriptives[ key ] = stats
+                
+    return descriptives
 
 ### Prep Cleaning
-
 def get_time( spec=None ):
     if type(spec) is str:
         try:
@@ -83,9 +197,6 @@ def comp_window( t_0, t_n, t_x ):
     except:
         return -1            
 
-def check_static( alist ):
-    return alist[1:] == alist[:-1]
-
 def check_header( line ):
     try: return (line.split(" ")[0] not in ['$','!','%begin','%end']) and ('comet' in line.split(" ")[2])
     except: return False
@@ -120,6 +231,30 @@ def unzip_txt( gzipped ):
         f.close()
     
     return lines
+
+def try_acct_file( test_date, jobid ):
+    try:
+        base = '/oasis/projects/nsf/sys200/stats/xsede_stats/comet_accounting/'
+        end_date = str( test_date )
+        jobid = str( jobid )
+        
+        test_file = base + end_date + '.txt'
+        test_acct_info = [ line for line in open_txt( test_file ) if jobid in line ]
+        
+        return test_acct_info
+    
+    except:
+        return []
+
+## Used in deep_search_host() to buffer bad files
+def try_open_x( aList, x ):
+    try:
+        unzip_txt( aList[x] )
+        return ( aList[x], x )
+    
+    except:
+        x += 1
+        try_open_x( aList, x )
 
 def group_from_txt( txt_file ):
     lines = open_txt( txt_file )
@@ -249,6 +384,7 @@ def format_data( line ):
     data = chunks[2:-1]
     
     return { (stat,dev): data }
+
 def separate_nodes( search_tup ):
     nl = search_tup[0]
     t_0 = search_tup[1]
@@ -267,7 +403,23 @@ def separate_nodes( search_tup ):
             exp_list.append( (node,t_0,t_n) )
     
     return exp_list
+
+def labeled_data( data_list ):
+    out_dict = {}
     
+    for i in range( len( data_list )):
+        line = data_list[i]
+        label = line[:3]
+        val = line[3]
+        t = line[4]
+        
+        if label in out_dict:
+            out_dict[label].append( ( t, val ) )
+        else:
+            out_dict[label] = [( t, val )]
+    
+    return out_dict
+
 def from_list( chunks ):
     nl_i = chunks.index("comet")
     nl = chunks[ nl_i ]
@@ -401,6 +553,25 @@ def timely_dict( info_dict ):
     
     return timely_data
 
+# Search a returned list of data for jobids
+def filter_for_id( raw, t_id ):
+    saved = []
+    
+    for i in range( len( raw )):
+        line = raw[i]
+        
+        try:
+            if int(line[5]) == int(t_id):
+                saved.append( line )
+        except:
+            try:
+                if str(line[5]) == str(t_id):
+                    saved.append( line )
+            except:
+                pass
+                
+    return saved
+
 ####Data Munging
 
 def info_dict( rules, info ):
@@ -420,67 +591,6 @@ def info_dict( rules, info ):
             
         return { rules_list[i]:info_list[i] for i in range(len(rules_list)) }
 
-def host_to_info_dict( zip_txt ):
-    l = zip_txt.find("comet")
-    r = zip_txt.rfind("comet")
-    
-    if l != r:
-        return zip_txt
-    
-    contents = prep_IO.unzip_txt( zip_txt )
-    info_dict = { 
-        "Schemas":{},
-        "Specs":[],
-        "Data":{},
-        "Jobid(s)":[]
-                }
-    
-    # Collect setting content
-    for i in range(len( contents )):
-        line = contents[ i ]
-        
-        # Spec line
-        if line[0] == "$":
-            info_dict["Specs"].append( prep_IO.format_spec( line ) )
-        
-        # Schema line    
-        if line[0] == "!":
-            info_dict["Schemas"].update( prep_IO.format_schema( line ) )
-    
-    # Collect variable content
-    curr_header = ''
-    
-    for j in range( len(contents) ):
-        line = contents[ j ]
-        
-        if "%" in line.split(" ")[0]:
-            next
-        
-        # Header line
-        elif check_header( line ):
-            header_dict = format_header( line )
-            curr_header = line[:-1]
-                                        
-            if "Timestamp" in header_dict:
-                info_dict["Data"][ curr_header ] = {}
-                    
-                if ("Jobid" in header_dict) and (header_dict["Jobid"] not in info_dict["Jobid(s)"]):
-                    info_dict["Jobid(s)"].append( header_dict["Jobid"] )
-    
-        # Data line
-        else:
-            try:
-                curr_data = prep_IO.format_data( line )
-                info_dict["Data"][curr_header].update( curr_data )
-                    
-            except:
-                next
-                
-    data_dict = timely_dict( info_dict )
-    info_dict["Data"] = data_dict
-    
-    return info_dict
-    
 def job_to_info_dict( txt_file_list, target=False ):
     nodes_by_date = {}
     unsaved = []
@@ -523,7 +633,120 @@ def job_to_info_dict( txt_file_list, target=False ):
             continue
             
     
-    return nodes_by_date, unsaved
+    return nodes_by_date, unsaved    
+    
+def host_to_info_dict( zip_txt, jobid=0 ):
+    l = zip_txt.find("comet")
+    r = zip_txt.rfind("comet")
+    
+    if l != r:
+        return zip_txt
+    
+    contents = unzip_txt( zip_txt )
+    info_dict = { 
+        "Schemas":{},
+        "Specs":[],
+        "Data":{},
+        "Jobid(s)":[]
+                }
+    
+    # Collect setting content
+    for i in range(len( contents )):
+        line = contents[ i ]
+        
+        # Spec line
+        if line[0] == "$":
+            info_dict["Specs"].append( format_spec( line ) )
+        
+        # Schema line    
+        if line[0] == "!":
+            info_dict["Schemas"].update( format_schema( line ) )
+    
+    # Collect variable content
+    curr_header = ''
+    
+    for j in range( len(contents) ):
+        line = contents[ j ]
+        
+        if "%" in line.split(" ")[0]:
+            next
+        
+        # Header line
+        elif check_header( line ):
+            header_dict = format_header( line )
+            curr_header = line[:-1]
+                                        
+            if "Timestamp" in header_dict:
+                info_dict["Data"][ curr_header ] = {}
+                    
+                if ("Jobid" in header_dict) and (header_dict["Jobid"] not in info_dict["Jobid(s)"]):
+                    info_dict["Jobid(s)"].append( header_dict["Jobid"] )
+    
+        # Data line
+        else:
+            try:
+                curr_data = format_data( line )
+                info_dict["Data"][curr_header].update( curr_data )
+                    
+            except:
+                next
+                
+    data_dict = timely_dict( info_dict )
+    info_dict["Data"] = data_dict
+    
+    if jobid != 0:
+        try:
+            temp = info_dict["Data"]
+            info_dict["Data"] = filter_for_id( temp, jobid )
+        except:
+            pass
+        
+    return info_dict
+
+def buffer_multi_hosts( source_dict, jobid=0 ):
+    if source_dict["Source"]:
+        src_list = source_dict["Source"]
+        
+        if jobid != 0:
+            base_info = host_to_info_dict( src_list[0], jobid )
+        else:
+            base_info = host_to_info_dict( src_list[0] )
+        
+        if len( src_list ) == 1:
+            base_info.update( source_dict )
+            return base_info
+    
+        else:
+            all_data = []
+            all_ids = []
+    
+            for i in range(len( src_list )):
+                src_file = src_list[i]
+                
+                if jobid != 0:
+                    temp_info = host_to_info_dict( src_file, jobid )
+                else:
+                    temp_info = host_to_info_dict( src_file )
+                
+                data = temp_info["Data"]
+                ids = temp_info["Jobid(s)"]
+                
+                for j in range(len( data )):
+                    val = data[j]
+                    all_data.append( val )
+                    
+                for j in range(len( ids )):
+                    val = ids[j]
+                    all_ids.append( val ) 
+
+            out = {}
+            out.update( source_dict )
+            out["Schemas"] = base_info["Schemas"]
+            out["Specs"] = base_info["Specs"]
+            out["Data"] = all_data
+            out["Jobid(s)"] = all_ids
+            
+            return out
 
 def lookup_files( searchable_list ):
     found = []
@@ -622,20 +845,28 @@ def deep_search_acct( file_list, search_list ):
 
 def deep_search_host( search_list, jobids=False ):
     out = { item:{"Source":[] } for item in search_list }
+    curr_year = get_time()[:4]
     
     for i in range(len( search_list )):
         target = search_list[ i ]#.split(" ")
         target_host = target[0]
         target_s = target[1]
         target_e = target[2]
+        target_y = target_e[:4]
         
         if target_host not in sorted_arc_data:
             out[ target ]["Source"].append( "HostNotFound" )
         
         else:
-            for j in range(len( sorted_arc_data[ target_host ] )):
-                filename = sorted_arc_data[ target_host ][ j ]
+            host_file_list = sorted_arc_data[ target_host ]
+            
+            if curr_year == target_y:
+                host_file_list.reverse()
+            
+            for j in range( len( host_file_list ) ):
+                filename,x = try_open_x( host_file_list, j )
                 file_year = get_year( filename )
+                j=x
             
                 # screen for files already added to source collection
                 if ( filename not in out[ target ]["Source"] ) and ( (file_year == target_s[:4] ) or ( file_year == target_e[:4] ) ):
@@ -667,11 +898,11 @@ def deep_search_host( search_list, jobids=False ):
             # jobids not included in search arguments
             # search by timestamps
             #else:
-                #for k in range(len( headers )):
-                #    sample = headers[ k ].split(" ")
+            #    for k in range(len( headers )):
+            #        sample = headers[ k ].split(" ")
                     
                     # timestamp in header is between s/e timestamps in target
-                #    if prep_IO.comp_window( target[1], target[2], sample[0] ) == 0:
+            #        if comp_window( target[1], target[2], sample[0] ) == 0:
                         
                         ####just pull all data from file
     
@@ -726,7 +957,7 @@ def search( mode=['s/e', 's', 'l','f'], from_list=False ):
                     
         #files,notFound = lookup_files( out_list )
         acct_info = deep_search_acct( acct_info_locs, out_list )
-        host_info = deep_search_host( out_list )
+        host_info = deep_search_host( out_list, jobids=True )
         
         # prep output               
         out_dict = {}
@@ -747,3 +978,36 @@ def search( mode=['s/e', 's', 'l','f'], from_list=False ):
     
     else:
         return 1
+    
+def search_sample_n( search_set, n ):
+    
+    # read in search_out from saved dict in src_file
+    cut = get_sample_hosts( search_set, n)
+    sample_hosts = deep_search_host( cut, jobids=True )
+    
+    # clean up unreturned search results
+    purged = {}
+    for key,val in sample_hosts.items():
+        if val["Source"]:
+            purged[key] = val
+    
+    return { 
+        "Sample": cut,
+        "Raw": sample_hosts,
+        "Out": purged
+    }
+
+def fill_host_info( search_sample ):
+    if search_sample["Out"]:
+        sample_dict = search_sample["Out"]
+        keys = list(sample_dict.keys())
+        sample_out = {}
+        
+        for i in range(len( keys )):
+            key = keys[i]
+            
+            check = sample_dict[ key ]
+            info_dict = buffer_multi_hosts( check, key[3] )
+            sample_out[key] = info_dict
+        
+        return sample_out
