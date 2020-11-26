@@ -245,6 +245,33 @@ def try_acct_file( test_date, jobid ):
     
     except:
         return []
+    
+def buffer_try_acct_file( a_search_tup, anon=False ):
+    test_end_date = a_search_tup[2][:10]
+    test_jobid = a_search_tup[3]
+    test_ret = try_acct_file( test_end_date, test_jobid )
+    
+    try:
+        if (test_ret) and (not anon):
+            acct_rules = 'JobID|User|Account|Start|End|Submit|Partition|Timelimit|JobName|State|NNodes|ReqCPUS|NodeList\n'.split('|')
+            acct_data = test_ret[0].split('|')
+            paired = { acct_rules[i] : acct_data[i] for i in range(len(acct_rules)) }
+        
+            return paired
+    
+    except:
+        return test_ret
+
+def fill_acct_info( partial_info, info_keys ):
+    filled = { item:{} for item in info_keys }
+    base = partial_info["Out"]
+    
+    for item in info_keys:
+        base_item = base[ item ]
+        filled[ item ] = buffer_try_acct_file( item )
+        filled[ item ].update( base_item  )
+    
+    return filled    
 
 ## Used in deep_search_host() to buffer bad files
 def try_open_x( aList, x ):
