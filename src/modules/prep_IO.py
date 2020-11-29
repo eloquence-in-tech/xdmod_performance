@@ -54,11 +54,12 @@ for i in range(len( arc_data )):
 def check_static( alist ):
     return alist[1:] == alist[:-1]
 
-def nonzero_start( host_data_list ):
-    if host_data_list[0] != 0:
-        return host_data_list[1:] > host_data_list[:-1]
-    else:
-        return False
+def fresh_start( host_data_list ):
+    return ( host_data_list[0] == 0 ) or ( all(i < j for i, j in zip(host_data_list, host_data_list[1:]) ))
+
+def monotonic( nice_list ):
+    dx = np.diff( nice_list )
+    return np.all(dx <= 0) or np.all(dx >= 0)
 
 def get_stats( data ):   
     try:
@@ -71,7 +72,7 @@ def get_stats( data ):
             'Mean' : np.mean(data),
             'Std. Dev' : np.std(data),
             'Skew' : scipy.stats.skew(data),
-            'Nonzero Start': nonzero_start(data)
+            'Values': data
         }
         return stats_blob
     
@@ -84,7 +85,7 @@ def get_stats( data ):
             'Mean' : np.mean(data),
             'Std. Dev' : np.std(data),
             'Skew' : scipy.stats.skew(data),
-            'Nonzero Start': nonzero_start(data)
+            'Values': data
         }
         return stats_blob
     
@@ -143,13 +144,15 @@ def get_host_descriptives( labeled_data_dict, data_keys_list ):
             
         else:
             
-            if nonzero_start( timedata_list ):
+            if not fresh_start( timedata_list ):
                 temp = timedata_list
                 base = temp[0]
                 timedata_list = [ x - base for x in temp ]
         
                 stats = get_stats( timedata_list )
+                stats["Nonzero Start"] = True
                 stats["Starting Value"] = base
+                stats["Raw Values"] = temp
                 descriptives[ key ] = stats
                 
             else:
@@ -246,10 +249,11 @@ def try_acct_file( test_date, jobid ):
     except:
         return []
     
-def buffer_try_acct_file( a_search_tup, anon=False ):
+def buffer_try_acct_file( a_search_tup, anon=True ):
     test_end_date = a_search_tup[2][:10]
     test_jobid = a_search_tup[3]
     test_ret = try_acct_file( test_end_date, test_jobid )
+    anon_filter = ['User', 'Account', 'JobName']
     
     try:
         if (test_ret) and (not anon):
@@ -258,6 +262,13 @@ def buffer_try_acct_file( a_search_tup, anon=False ):
             paired = { acct_rules[i] : acct_data[i] for i in range(len(acct_rules)) }
         
             return paired
+        
+        elif (test_ret) and anon:
+            acct_rules = 'JobID|User|Account|Start|End|Submit|Partition|Timelimit|JobName|State|NNodes|ReqCPUS|NodeList\n'.split('|')
+            acct_data = test_ret[0].split('|')
+            paired = { acct_rules[i] : acct_data[i] for i in range(len(acct_rules)) if acct_rules[i] not in anon_filter }
+        
+            return paired            
     
     except:
         return test_ret
@@ -269,7 +280,7 @@ def fill_acct_info( partial_info, info_keys ):
     for item in info_keys:
         base_item = base[ item ]
         filled[ item ] = buffer_try_acct_file( item )
-        filled[ item ].update( base_item  )
+        filled[ item ].update( base_item  )            
     
     return filled    
 
