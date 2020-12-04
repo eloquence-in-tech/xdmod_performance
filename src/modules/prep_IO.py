@@ -55,7 +55,7 @@ def check_static( alist ):
     return alist[1:] == alist[:-1]
 
 def fresh_start( host_data_list ):
-    return ( host_data_list[0] == 0 ) or ( all(i < j for i, j in zip(host_data_list, host_data_list[1:]) ))
+    return ( all(i < j for i, j in zip(host_data_list, host_data_list[1:]) ))
 
 def monotonic( nice_list ):
     dx = np.diff( nice_list )
