@@ -284,7 +284,9 @@ def fill_acct_info( partial_info, info_keys ):
     
     return filled    
 
-## Used in deep_search_host() to buffer bad files
+## !! RECURSION !!
+## Used by deep_search_host()
+## DESCRIPTION: Buffers contiguous 'bad' files
 def try_open_x( aList, x ):
     try:
         unzip_txt( aList[x] )
@@ -570,7 +572,78 @@ def acct_file_to_searchset( acct_chunks=False, partial_txt=False, full_txt=False
                 out_list.append( ( obj_tup[0][0], obj_tup[1], obj_tup[2], obj_tup[3] ) )
     
     return out_list
+
+def buffer_schema( sch_set, w_id=False ):
+    rules = sch_set[0]
+    schema = rules.split(" ")
+    data = sch_set[1:]
     
+    if w_id:
+        out_dict = { ea:{} for ea in schema }
+        
+        # TODO #
+        
+        #for line in sch_set[1:]:
+        #    chunks = line.split(" ")[1:]
+        #    
+        #    for i in range(len(chunks)):
+        #        out_dict[ schema[i] ] = chunks[i]
+                
+    else:
+        out_dict = { name : [] for name in schema if 'FIXED_' in name } #name.partition(',')[0] to clean label
+        
+        for line in data:
+            chunks = line.split(" ")[1:]
+            
+            for i in range( len(chunks)):
+                if 'FIXED_' in schema[i]:
+                    name = schema[i]                     #schema[i].partition(',')[0] to support clean labels
+                    out_dict[ name ].append( float(chunks[i]) )     
+    
+    return out_dict
+
+def find_recent_hosts( d0, dn, hosts_dict ):
+    e = d0 + 'T00:00:00'
+    s = dn + 'T23:59:59'
+    out_dict = {}
+    
+    for host,host_list in hosts_dict.items():
+        
+        for host_file in host_list:
+            t = get_time( host_file[-13:-3] )
+             
+            if t[:7] == s[:7]:
+                
+                if host in out_dict:
+                    out_dict[host].append( host_file )
+                    
+                else:
+                    out_dict[ host ] = [ host_file ]
+                    
+    return out_dict
+
+def find_fixed( host_file ):    
+    lines = unzip_txt( host_file )
+    cpi_set = [ line for line in lines if 'intel_8pmc3' in line ]
+    return cpi_set
+
+def find_fixed_set( host_dict, lim=0 ):
+    out_dict = { host_name:[] for host_name in host_dict.keys() }
+    
+    for host_name, file_list in host_dict.items():
+        
+        if lim == 0:
+            for i in range(len( file_list )): 
+                host_file = file_list[i]
+                out_dict[ host_name ].append( find_fixed( host_file ) )
+        else:
+            cut = file_list[ : lim ]
+            for i in range(len( cut )): 
+                host_file = file_list[i]
+                out_dict[ host_name ].append( find_fixed( host_file ) )
+                
+    return out_dict
+
 ####Data analysis
 
 def timely_dict( info_dict ):
