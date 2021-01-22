@@ -11,44 +11,18 @@ import gzip
 #import pandas as pd
 import numpy as np
 import datetime as dt
-from collections import OrderedDict
+#from collections import OrderedDict
 import scipy
 import statistics
 
-# System data locs
-source_dir = '/oasis/projects/nsf/sys200/stats/xsede_stats/'
-locs = { 'aofa': source_dir+'archive_of_archive',
-         'job_info': source_dir+'comet_accounting',
-         'arc': source_dir+'archive'
-         #'host_info': source_dir+'comet_hostfile_logs',
-         #'old_pickles': source_dir+'comet_pickles'
-       }
-acct_info_locs = [ locs['job_info']+'/'+stamp for stamp in listdir(locs['job_info']) ]
-curr_data = [ locs['arc']+'/'+host_dir+'/'+stamp 
-            for host_dir in listdir(locs['arc'])
-            for stamp in listdir(locs['arc']+'/'+host_dir)  ]
+# Custom dependencies
+import prep_fs
 
-aofa_data = [ locs['aofa']+'/'+host_dir+'/'+stamp 
-            for host_dir in listdir(locs['aofa'])
-            for stamp in listdir(locs['aofa']+'/'+host_dir)  ]
+acct_info_locs = prep_fs.acct_info_locs
+arc_data = prep_fs.arc_data
+sorted_arc_data = prep_fs.sorted_arc_data
 
-arc_data = curr_data + aofa_data
-
-## Handle minor formatting for search methods
-GPU_host_key = 'comet-3'
-GPU_exceptions = [ 'comet-30-01', 'comet-30-02', 'comet-31-01', 'comet-31-02' ]
-sorted_arc_data = OrderedDict()
-
-for i in range(len( arc_data )):
-    host_x = arc_data[i].find("comet")
-    host_name = arc_data[i][ host_x : host_x + 11 ]
-    
-    if ( GPU_host_key not in host_name ) or ( host_name in GPU_exceptions ):
-        if host_name in sorted_arc_data:
-            sorted_arc_data[ host_name ].append( arc_data[i] )
-        
-        else:
-            sorted_arc_data[ host_name ] = [ arc_data[i] ]
+conv = prep_fs.conv_acct
 
 ### Prep Analysis
 def check_static( alist ):
@@ -84,7 +58,6 @@ def get_stats( data ):
             'Quartiles' : np.percentile(data, [25, 50, 75] ),
             'Mean' : np.mean(data),
             'Std. Dev' : np.std(data),
-            'Skew' : scipy.stats.skew(data),
             'Values': data
         }
         return stats_blob
@@ -217,9 +190,12 @@ def check_host_file( headers_list, search_tup ):
         return 1
     else:
         return 0
-
+    
+def get_ts( gz_filename ):
+    return get_time( gz_filename[-13:-3] )   
+    
 def get_year( gz_filename ):
-    return get_time( gz_filename.split("/")[-1][:-3])[:4]    
+    return get_ts( gz_filename )[:4]    
 
 def open_txt( txt_file ):
     with open( txt_file, "rt" ) as f:
@@ -368,8 +344,22 @@ def quick_save( obj, label=get_time() ):
         
     except:
         "There was a problem pickling the object - Save manually."
+        
+def quick_load( pkl_file ):
+    
+    try:
+        pkld_obj = open( pkl_file, 'rb' )
+        obj = pickle.load( pkld_obj )
+        
+        return obj
+        
+    except:
+        f"There was a problem unpickling an object from {pkl_file}."
 
 ####Formatting
+def format_acct_file( str_date ):
+    return conv + '/' + str_date + '.txt'
+
 def format_nodelist( nodelist ):
     purged = nodelist.replace('[','').replace(']','').replace(',','-').replace('-','').split("comet")[1:]
     nodes = []
@@ -954,7 +944,34 @@ def deep_search_acct( file_list, search_list ):
     
     return collected
 
-def deep_search_host( search_list, jobids=False ):
+def deep_search_host( search_list, jobids=True ):
+    
+    for i in range(len( arc_data )):
+        filename,x = try_open_x( host_file_list, i )
+        file_year = get_year( filename )
+        i=x
+        
+        headers = collect_headers( f )
+        
+        name_idx = f.find('comet-')
+        host_name = f[ name_idx : name_idx + 11 ]
+        
+        for i in range(len( search_list )):
+            target = search_list[ i ]
+            target_host = target[0]
+            target_id = target[3]
+            
+            if host_name == target_host:
+                for header in headers:
+                    
+                    if target_id in header:
+                        out[ target ]["Source"].append( f )         
+                    else:
+                        next
+    
+    return out
+
+def deep_search_host_broken( search_list, jobids=False ):
     out = { item:{"Source":[] } for item in search_list }
     curr_year = get_time()[:4]
     
@@ -1005,6 +1022,8 @@ def deep_search_host( search_list, jobids=False ):
                         # jobid not found
                         else:
                             next
+                    else:
+                        next
             
             # jobids not included in search arguments
             # search by timestamps
@@ -1090,23 +1109,30 @@ def search( mode=['s/e', 's', 'l','f'], from_list=False ):
     else:
         return 1
     
-def search_sample_n( search_set, n ):
+def buffer_search_sample_n( sample_subset, subset_hosts ):
+    # clean up unreturned search results
+    purged = {}
+    for key,val in subset_hosts.items():
+        if (val["Source"]) and (val["Source"] != 'HostNotFound'):
+            purged[key] = val
+    
+    return { 
+        "Sample": sample_subset,
+        "Raw": subset_hosts,
+        "Out": purged
+    }    
+
+def search_sample_n( cut, n ):
     
     # read in search_out from saved dict in src_file
     cut = get_sample_hosts( search_set, n)
     sample_hosts = deep_search_host( cut, jobids=True )
     
-    # clean up unreturned search results
-    purged = {}
-    for key,val in sample_hosts.items():
-        if val["Source"]:
-            purged[key] = val
+    # format results
+    out = buffer_search_sample_n( cut, sample_hosts )
     
-    return { 
-        "Sample": cut,
-        "Raw": sample_hosts,
-        "Out": purged
-    }
+    return out
+   
 
 def fill_host_info( search_sample ):
     if search_sample["Out"]:
